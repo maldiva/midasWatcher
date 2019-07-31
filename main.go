@@ -79,17 +79,17 @@ func getTransactionInfo(transactionHash string) ([]transactionInfo, error) {
 
 }
 
-func getBlockInfo(hash interface{}) blockInformation { // returns block information by hash
+func getBlockInfo(hash interface{}) (blockInformation, error) { // returns block information by hash
 
 	block, err := rpcClient.Call("getblock", hash)
 
 	if err != nil {
-		panic(err)
+		return blockInformation{}, err
 	}
 
 	blockData := block.Result.(map[string]interface{})
 
-	return blockData
+	return blockData, nil
 
 }
 
@@ -105,14 +105,14 @@ func getTransactionHashes(blockData blockInformation) []string { //returns all t
 	return transactions
 }
 
-func findNewTransactions() []transactionInfo {
+func findNewTransactions() ([]transactionInfo, error) {
 
 	var res []transactionInfo
 
 	tip, err := rpcClient.Call("getbestblockhash")
 
 	if err != nil {
-		panic(err)
+		return []transactionInfo{}, err
 	}
 
 	fmt.Println("Best block hash is ", tip.Result)
@@ -124,12 +124,15 @@ func findNewTransactions() []transactionInfo {
 	lastVisibleBlockHash := db.GetLastVisibleBlockHash()
 
 	if lastVisibleBlockHash == currentHash {
-		return []transactionInfo{}
+		return []transactionInfo{}, nil
 	}
 
 	for currentHash != lastVisibleBlockHash {
 
-		currentBlockData := getBlockInfo(currentHash)
+		currentBlockData, err := getBlockInfo(currentHash)
+		if err != nil {
+			return []transactionInfo{}, nil
+		}
 
 		currentBlockTransactions := getTransactionHashes(currentBlockData)
 
@@ -139,6 +142,7 @@ func findNewTransactions() []transactionInfo {
 
 			if err != nil {
 				fmt.Println(err)
+				continue
 			}
 
 			if txInfo != nil { // simple check to not operate with non-standard transactions
@@ -169,7 +173,7 @@ func findNewTransactions() []transactionInfo {
 
 	db.SetLastVisibleBlockHash(tipHash.(string))
 
-	return res
+	return res, nil
 
 }
 
@@ -178,7 +182,12 @@ func main() {
 	ticker := time.NewTicker(1 * time.Second)
 	go func() {
 		for range ticker.C {
-			newIncomingTransactions := findNewTransactions()
+			newIncomingTransactions, err := findNewTransactions()
+
+			if err != nil {
+				fmt.Println(err)
+			}
+
 			if len(newIncomingTransactions) > 0 {
 				fmt.Println("Found new transactions on addresses from watchlist", newIncomingTransactions)
 				fmt.Println("-------------------------------------------")
